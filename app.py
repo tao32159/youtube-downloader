@@ -12,12 +12,9 @@ DOWNLOAD_FOLDER.mkdir(exist_ok=True)
 
 progress = {}
 
-# 获取视频可用格式
 @app.route('/info', methods=['POST'])
 def get_video_info():
     url = request.form.get('url')
-    task_id = str(uuid.uuid4())
-    
     try:
         ydl_opts = {
             'quiet': True,
@@ -30,20 +27,35 @@ def get_video_info():
             info = ydl.extract_info(url, download=False)
             
             formats = []
+            seen = set()
+            
             for f in info.get('formats', []):
-                if f.get('vcodec') != 'none' and f.get('acodec') != 'none':  # 有视频+音频
+                format_id = f.get('format_id')
+                if format_id in seen:
+                    continue
+                seen.add(format_id)
+                
+                height = f.get('height') or 0
+                ext = f.get('ext', 'mp4')
+                
+                # 优先显示有视频和音频的格式
+                if f.get('vcodec') != 'none' and f.get('acodec') != 'none':
+                    quality = f"{height}p" if height else f.get('format_note', '未知')
                     formats.append({
-                        'itag': f.get('format_id'),
-                        'quality': f.get('resolution') or f.get('format_note') or '未知',
-                        'ext': f.get('ext'),
-                        'filesize': f.get('filesize') or f.get('filesize_approx')
+                        'itag': format_id,
+                        'quality': quality,
+                        'ext': ext,
+                        'type': 'video'
                     })
+            
+            # 如果没找到，添加音频格式
+            if not formats:
+                formats.append({'itag': 'bestaudio', 'quality': '音频 (MP3)', 'ext': 'mp3', 'type': 'audio'})
             
             return jsonify({
                 "success": True,
-                "title": info.get('title'),
-                "thumbnail": info.get('thumbnail'),
-                "formats": formats[:15]  # 最多显示15个
+                "title": info.get('title', '未知标题'),
+                "formats": formats[:20]
             })
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
@@ -56,11 +68,16 @@ def download_task(url, format_id, task_id):
             'outtmpl': str(DOWNLOAD_FOLDER / '%(title)s.%(ext)s'),
             'progress_hooks': [lambda d: update_progress(d, task_id)],
             'quiet': True,
-            'format': format_id,
         }
 
         if COOKIES_PATH.exists():
             ydl_opts['cookiefile'] = str(COOKIES_PATH)
+
+        if format_id == 'bestaudio':
+            ydl_opts['format'] = 'bestaudio/best'
+            ydl_opts['postprocessors'] = [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3'}]
+        else:
+            ydl_opts['format'] = format_id
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
@@ -88,7 +105,7 @@ def upload_cookies():
     if 'cookies' not in request.files:
         return jsonify({"error": "没有上传文件"})
     file = request.files['cookies']
-    if file.filename == '': 
+    if file.filename == '':
         return jsonify({"error": "没有选择文件"})
     file.save(COOKIES_PATH)
     return jsonify({"success": True, "message": "✅ Cookies 上传成功！"})
