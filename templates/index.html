@@ -12,60 +12,77 @@
     button {background:#e60000; color:white; border:none; font-weight:bold;}
     button:active {background:#cc0000;}
     .cookies-btn {background:#007bff;}
-    #status {margin-top:20px; padding:15px; border-radius:8px; min-height:50px;}
+    #status {margin-top:20px; padding:15px; border-radius:8px; min-height:60px;}
+    .format-btn {background:#28a745; margin:5px 0;}
   </style>
 </head>
 <body>
   <div class="container">
     <h1>🎥 YouTube 下载器</h1>
     
-    <h3>第一步：上传 Cookies（重要）</h3>
+    <h3>1. 上传 Cookies</h3>
     <input type="file" id="cookiesFile" accept=".txt">
     <button class="cookies-btn" onclick="uploadCookies()">📤 上传 cookies.txt</button>
 
-    <h3>第二步：下载视频</h3>
-    <input type="text" id="url" placeholder="粘贴 YouTube 视频链接" />
-    <select id="format">
-      <option value="video">📹 视频 (最高画质)</option>
-      <option value="audio">🎵 音频 (MP3)</option>
-    </select>
-    <button onclick="startDownload()">🚀 开始下载</button>
+    <h3>2. 粘贴视频链接</h3>
+    <input type="text" id="url" placeholder="https://youtu.be/..." />
+    <button onclick="getFormats()">🔍 获取清晰度</button>
+
+    <div id="formats" style="margin-top:15px;"></div>
     
     <div id="status"></div>
   </div>
 
   <script>
     async function uploadCookies() {
-      const fileInput = document.getElementById('cookiesFile');
-      if (!fileInput.files[0]) return alert("请先选择 cookies.txt 文件");
-      
+      const file = document.getElementById('cookiesFile').files[0];
+      if (!file) return alert("请选择 cookies.txt 文件");
       const form = new FormData();
-      form.append('cookies', fileInput.files[0]);
-      
-      const res = await fetch('/upload_cookies', {method: 'POST', body: form});
+      form.append('cookies', file);
+      const res = await fetch('/upload_cookies', {method:'POST', body:form});
       const data = await res.json();
-      
-      if (data.success) {
-        alert(data.message);
-      } else {
-        alert(data.error);
-      }
+      alert(data.message || data.error);
     }
 
-    async function startDownload() {
+    async function getFormats() {
       const url = document.getElementById('url').value.trim();
-      const fmt = document.getElementById('format').value;
-      const statusDiv = document.getElementById('status');
-      
-      if (!url) return alert("请输入 YouTube 链接！");
-      
-      statusDiv.innerHTML = "🔍 正在解析视频...";
-      
+      const status = document.getElementById('status');
+      if (!url) return alert("请输入链接");
+
+      status.innerHTML = "正在解析视频格式...";
+      document.getElementById('formats').innerHTML = "";
+
       const form = new FormData();
       form.append('url', url);
-      form.append('format', fmt);
-      
-      const res = await fetch('/download', {method: 'POST', body: form});
+
+      const res = await fetch('/info', {method:'POST', body:form});
+      const data = await res.json();
+
+      if (!data.success) {
+        status.innerHTML = `❌ ${data.error}`;
+        return;
+      }
+
+      let html = `<h3>${data.title}</h3><p>选择清晰度下载：</p>`;
+      data.formats.forEach(f => {
+        html += `
+          <button class="format-btn" onclick="startDownload('${url}', '${f.itag}')">
+            ${f.quality} (${f.ext})
+          </button>`;
+      });
+      document.getElementById('formats').innerHTML = html;
+      status.innerHTML = "";
+    }
+
+    async function startDownload(url, format_id) {
+      const status = document.getElementById('status');
+      status.innerHTML = "🚀 开始下载...";
+
+      const form = new FormData();
+      form.append('url', url);
+      form.append('format_id', format_id);
+
+      const res = await fetch('/download', {method:'POST', body:form});
       const {task_id} = await res.json();
 
       const interval = setInterval(async () => {
@@ -74,14 +91,14 @@
 
         if (p.status === "finished") {
           clearInterval(interval);
-          statusDiv.innerHTML = `✅ 下载完成！<br><a href="/getfile/${task_id}" style="color:blue;">⬇️ 点击这里下载文件</a>`;
+          status.innerHTML = `✅ 下载完成！<br><a href="/getfile/${task_id}" style="color:blue;font-size:18px;">⬇️ 点击下载文件</a>`;
         } else if (p.status === "downloading") {
-          statusDiv.textContent = `⏳ 下载中... ${p.percent || 0}%`;
+          status.textContent = `⏳ 下载中... ${p.percent || 0}%`;
         } else if (p.status === "error") {
           clearInterval(interval);
-          statusDiv.innerHTML = `❌ 下载失败: ${p.error}`;
+          status.innerHTML = `❌ ${p.error}`;
         }
-      }, 1500);
+      }, 1200);
     }
   </script>
 </body>
