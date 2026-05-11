@@ -26,7 +26,7 @@ def download_task(url, fmt, task_id):
         if COOKIES_PATH.exists():
             ydl_opts['cookiefile'] = str(COOKIES_PATH)
 
-        # === 优化后的格式选择 ===
+        # === 更稳健的格式选择（解决 Requested format is not available）===
         if fmt == "audio":
             ydl_opts.update({
                 'format': 'bestaudio/best',
@@ -37,8 +37,8 @@ def download_task(url, fmt, task_id):
                 }],
             })
         else:
-            # 更稳健的视频格式选择
-            ydl_opts['format'] = 'bestvideo[height<=1080]+bestaudio/best[height<=1080]/best'
+            # 最推荐的写法：优先合并最佳视频+音频
+            ydl_opts['format'] = 'bv*+ba/best'
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
@@ -61,8 +61,7 @@ def update_progress(d, task_id):
 
 @app.route('/')
 def index():
-    has_cookies = COOKIES_PATH.exists()
-    return render_template('index.html', has_cookies=has_cookies)
+    return render_template('index.html')
 
 @app.route('/upload_cookies', methods=['POST'])
 def upload_cookies():
@@ -72,7 +71,7 @@ def upload_cookies():
     if file.filename == '':
         return jsonify({"error": "没有选择文件"})
     file.save(COOKIES_PATH)
-    return jsonify({"success": True, "message": "✅ Cookies 上传成功！现在可以下载视频了。"})
+    return jsonify({"success": True, "message": "✅ Cookies 上传成功！"})
 
 @app.route('/download', methods=['POST'])
 def start_download():
