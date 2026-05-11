@@ -20,24 +20,22 @@ def download_task(url, fmt, task_id):
             'outtmpl': str(DOWNLOAD_FOLDER / '%(title)s.%(ext)s'),
             'progress_hooks': [lambda d: update_progress(d, task_id)],
             'quiet': True,
-            'no_warnings': True,
         }
 
+        # Cookies 调试信息
         if COOKIES_PATH.exists():
             ydl_opts['cookiefile'] = str(COOKIES_PATH)
+            print("✅ 使用 Cookies 文件")
+        else:
+            print("⚠️ 没有找到 Cookies 文件")
 
         if fmt == "audio":
             ydl_opts.update({
                 'format': 'bestaudio/best',
-                'postprocessors': [{
-                    'key': 'FFmpegExtractAudio',
-                    'preferredcodec': 'mp3',
-                    'preferredquality': '192',
-                }],
+                'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3'}],
             })
         else:
-            # 多重 fallback 格式选择
-            ydl_opts['format'] = 'bv*+ba/bestvideo+bestaudio/best'
+            ydl_opts['format'] = 'bv*+ba/best'
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
@@ -45,31 +43,9 @@ def download_task(url, fmt, task_id):
             if fmt == "audio":
                 filename = str(Path(filename).with_suffix('.mp3'))
             
-            progress[task_id] = {
-                "status": "finished", 
-                "filename": os.path.basename(filename), 
-                "path": filename
-            }
+            progress[task_id] = {"status": "finished", "filename": os.path.basename(filename), "path": filename}
     except Exception as e:
-        error_str = str(e)
-        # 如果还是格式错误，尝试最保守的 fallback
-        if "Requested format is not available" in error_str:
-            try:
-                progress[task_id] = {"status": "downloading", "percent": 0}
-                ydl_opts['format'] = 'best'
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(url, download=True)
-                    filename = ydl.prepare_filename(info)
-                    progress[task_id] = {
-                        "status": "finished", 
-                        "filename": os.path.basename(filename), 
-                        "path": filename
-                    }
-                return
-            except Exception as e2:
-                progress[task_id] = {"status": "error", "error": str(e2)}
-        else:
-            progress[task_id] = {"status": "error", "error": error_str}
+        progress[task_id] = {"status": "error", "error": str(e)}
 
 def update_progress(d, task_id):
     if d['status'] == 'downloading' and d.get('total_bytes'):
@@ -78,7 +54,9 @@ def update_progress(d, task_id):
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    has_cookies = COOKIES_PATH.exists()
+    cookies_size = COOKIES_PATH.stat().st_size if has_cookies else 0
+    return render_template('index.html', has_cookies=has_cookies, cookies_size=cookies_size)
 
 @app.route('/upload_cookies', methods=['POST'])
 def upload_cookies():
@@ -87,9 +65,12 @@ def upload_cookies():
     file = request.files['cookies']
     if file.filename == '':
         return jsonify({"error": "没有选择文件"})
+    
     file.save(COOKIES_PATH)
-    return jsonify({"success": True, "message": "✅ Cookies 上传成功！"})
+    size = COOKIES_PATH.stat().st_size
+    return jsonify({"success": True, "message": f"✅ Cookies 上传成功！文件大小: {size} 字节"})
 
+# 其他路由保持不变
 @app.route('/download', methods=['POST'])
 def start_download():
     url = request.form.get('url')
