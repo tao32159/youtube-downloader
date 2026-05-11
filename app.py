@@ -16,7 +16,10 @@ progress = {}
 def get_video_info():
     url = request.form.get('url')
     try:
-        ydl_opts = {'quiet': True, 'no_warnings': True}
+        ydl_opts = {
+            'quiet': True,
+            'no_warnings': True,
+        }
         if COOKIES_PATH.exists():
             ydl_opts['cookiefile'] = str(COOKIES_PATH)
 
@@ -25,22 +28,19 @@ def get_video_info():
             
             formats = []
             for f in info.get('formats', []):
-                if f.get('vcodec') != 'none':   # 有视频的
+                if f.get('vcodec') != 'none':  # 有视频的
                     height = f.get('height') or 0
-                    quality = f"{height}p" if height else f.get('format_note', f.get('resolution', '未知'))
-                    size = f.get('filesize') or f.get('filesize_approx')
-                    size_str = f" ({round(size/1024/1024, 1)}MB)" if size else ""
-                    
+                    quality = f"{height}p" if height else f.get('format_note', '未知')
                     formats.append({
                         'itag': f.get('format_id'),
-                        'quality': quality + size_str,
+                        'quality': quality,
                         'ext': f.get('ext', 'mp4')
                     })
             
             return jsonify({
                 "success": True,
-                "title": info.get('title', '未知'),
-                "formats": formats[-20:]   # 显示最后20个（通常质量较高的在后面）
+                "title": info.get('title', '未知标题'),
+                "formats": formats[-15:]   # 取质量较高的
             })
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
@@ -53,15 +53,21 @@ def download_task(url, format_id, task_id):
             'outtmpl': str(DOWNLOAD_FOLDER / '%(title)s.%(ext)s'),
             'progress_hooks': [lambda d: update_progress(d, task_id)],
             'quiet': True,
-            'format': format_id,
         }
 
         if COOKIES_PATH.exists():
             ydl_opts['cookiefile'] = str(COOKIES_PATH)
 
+        # 最稳健的处理方式
+        if format_id and format_id != "best":
+            ydl_opts['format'] = format_id
+        else:
+            ydl_opts['format'] = 'bestvideo+bestaudio/best'
+
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
-            # 获取实际下载的文件名
+            
+            # 获取文件名
             info = ydl.extract_info(url, download=False)
             filename = ydl.prepare_filename(info)
             
