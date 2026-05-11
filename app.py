@@ -12,7 +12,43 @@ DOWNLOAD_FOLDER.mkdir(exist_ok=True)
 
 progress = {}
 
-def download_task(url, fmt, task_id):
+# 获取视频可用格式
+@app.route('/info', methods=['POST'])
+def get_video_info():
+    url = request.form.get('url')
+    task_id = str(uuid.uuid4())
+    
+    try:
+        ydl_opts = {
+            'quiet': True,
+            'no_warnings': True,
+        }
+        if COOKIES_PATH.exists():
+            ydl_opts['cookiefile'] = str(COOKIES_PATH)
+
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            
+            formats = []
+            for f in info.get('formats', []):
+                if f.get('vcodec') != 'none' and f.get('acodec') != 'none':  # 有视频+音频
+                    formats.append({
+                        'itag': f.get('format_id'),
+                        'quality': f.get('resolution') or f.get('format_note') or '未知',
+                        'ext': f.get('ext'),
+                        'filesize': f.get('filesize') or f.get('filesize_approx')
+                    })
+            
+            return jsonify({
+                "success": True,
+                "title": info.get('title'),
+                "thumbnail": info.get('thumbnail'),
+                "formats": formats[:15]  # 最多显示15个
+            })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+def download_task(url, format_id, task_id):
     try:
         progress[task_id] = {"status": "downloading", "percent": 0}
 
@@ -20,30 +56,21 @@ def download_task(url, fmt, task_id):
             'outtmpl': str(DOWNLOAD_FOLDER / '%(title)s.%(ext)s'),
             'progress_hooks': [lambda d: update_progress(d, task_id)],
             'quiet': True,
+            'format': format_id,
         }
 
-        # Cookies 调试信息
         if COOKIES_PATH.exists():
             ydl_opts['cookiefile'] = str(COOKIES_PATH)
-            print("✅ 使用 Cookies 文件")
-        else:
-            print("⚠️ 没有找到 Cookies 文件")
-
-        if fmt == "audio":
-            ydl_opts.update({
-                'format': 'bestaudio/best',
-                'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3'}],
-            })
-        else:
-            ydl_opts['format'] = 'bv*+ba/best'
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
             filename = ydl.prepare_filename(info)
-            if fmt == "audio":
-                filename = str(Path(filename).with_suffix('.mp3'))
             
-            progress[task_id] = {"status": "finished", "filename": os.path.basename(filename), "path": filename}
+            progress[task_id] = {
+                "status": "finished", 
+                "filename": os.path.basename(filename), 
+                "path": filename
+            }
     except Exception as e:
         progress[task_id] = {"status": "error", "error": str(e)}
 
@@ -54,30 +81,25 @@ def update_progress(d, task_id):
 
 @app.route('/')
 def index():
-    has_cookies = COOKIES_PATH.exists()
-    cookies_size = COOKIES_PATH.stat().st_size if has_cookies else 0
-    return render_template('index.html', has_cookies=has_cookies, cookies_size=cookies_size)
+    return render_template('index.html')
 
 @app.route('/upload_cookies', methods=['POST'])
 def upload_cookies():
     if 'cookies' not in request.files:
         return jsonify({"error": "没有上传文件"})
     file = request.files['cookies']
-    if file.filename == '':
+    if file.filename == '': 
         return jsonify({"error": "没有选择文件"})
-    
     file.save(COOKIES_PATH)
-    size = COOKIES_PATH.stat().st_size
-    return jsonify({"success": True, "message": f"✅ Cookies 上传成功！文件大小: {size} 字节"})
+    return jsonify({"success": True, "message": "✅ Cookies 上传成功！"})
 
-# 其他路由保持不变
 @app.route('/download', methods=['POST'])
 def start_download():
     url = request.form.get('url')
-    fmt = request.form.get('format', 'video')
+    format_id = request.form.get('format_id')
     task_id = str(uuid.uuid4())
     
-    thread = threading.Thread(target=download_task, args=(url, fmt, task_id))
+    thread = threading.Thread(target=download_task, args=(url, format_id, task_id))
     thread.daemon = True
     thread.start()
     
