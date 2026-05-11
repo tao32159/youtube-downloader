@@ -26,7 +26,6 @@ def download_task(url, fmt, task_id):
         if COOKIES_PATH.exists():
             ydl_opts['cookiefile'] = str(COOKIES_PATH)
 
-        # === 更稳健的格式选择（解决 Requested format is not available）===
         if fmt == "audio":
             ydl_opts.update({
                 'format': 'bestaudio/best',
@@ -37,8 +36,8 @@ def download_task(url, fmt, task_id):
                 }],
             })
         else:
-            # 最推荐的写法：优先合并最佳视频+音频
-            ydl_opts['format'] = 'bv*+ba/best'
+            # 多重 fallback 格式选择
+            ydl_opts['format'] = 'bv*+ba/bestvideo+bestaudio/best'
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
@@ -52,7 +51,25 @@ def download_task(url, fmt, task_id):
                 "path": filename
             }
     except Exception as e:
-        progress[task_id] = {"status": "error", "error": str(e)}
+        error_str = str(e)
+        # 如果还是格式错误，尝试最保守的 fallback
+        if "Requested format is not available" in error_str:
+            try:
+                progress[task_id] = {"status": "downloading", "percent": 0}
+                ydl_opts['format'] = 'best'
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(url, download=True)
+                    filename = ydl.prepare_filename(info)
+                    progress[task_id] = {
+                        "status": "finished", 
+                        "filename": os.path.basename(filename), 
+                        "path": filename
+                    }
+                return
+            except Exception as e2:
+                progress[task_id] = {"status": "error", "error": str(e2)}
+        else:
+            progress[task_id] = {"status": "error", "error": error_str}
 
 def update_progress(d, task_id):
     if d['status'] == 'downloading' and d.get('total_bytes'):
