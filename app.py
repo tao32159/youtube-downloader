@@ -7,11 +7,12 @@ from pathlib import Path
 
 app = Flask(__name__)
 DOWNLOAD_FOLDER = Path("/tmp/downloads")
+COOKIES_PATH = Path("/tmp/cookies.txt")
 DOWNLOAD_FOLDER.mkdir(exist_ok=True)
 
 progress = {}
 
-def download_task(url, fmt, task_id, cookies_path=None):
+def download_task(url, fmt, task_id):
     try:
         progress[task_id] = {"status": "downloading", "percent": 0}
 
@@ -22,9 +23,9 @@ def download_task(url, fmt, task_id, cookies_path=None):
             'no_warnings': True,
         }
 
-        # 添加 Cookies 支持
-        if cookies_path and os.path.exists(cookies_path):
-            ydl_opts['cookiefile'] = cookies_path
+        # 使用上传的 Cookies
+        if COOKIES_PATH.exists():
+            ydl_opts['cookiefile'] = str(COOKIES_PATH)
 
         if fmt == "audio":
             ydl_opts.update({
@@ -59,7 +60,21 @@ def update_progress(d, task_id):
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    has_cookies = COOKIES_PATH.exists()
+    return render_template('index.html', has_cookies=has_cookies)
+
+# 新增：上传 Cookies
+@app.route('/upload_cookies', methods=['POST'])
+def upload_cookies():
+    if 'cookies' not in request.files:
+        return jsonify({"error": "没有上传文件"})
+    
+    file = request.files['cookies']
+    if file.filename == '':
+        return jsonify({"error": "没有选择文件"})
+    
+    file.save(COOKIES_PATH)
+    return jsonify({"success": True, "message": "Cookies 上传成功！现在可以下载视频了。"})
 
 @app.route('/download', methods=['POST'])
 def start_download():
@@ -67,16 +82,12 @@ def start_download():
     fmt = request.form.get('format', 'video')
     task_id = str(uuid.uuid4())
     
-    # 这里暂时用默认路径，后面我们再加上传功能
-    cookies_path = "/tmp/cookies.txt"
-    
-    thread = threading.Thread(target=download_task, args=(url, fmt, task_id, cookies_path))
+    thread = threading.Thread(target=download_task, args=(url, fmt, task_id))
     thread.daemon = True
     thread.start()
     
     return jsonify({"task_id": task_id})
 
-# 其他路由保持不变
 @app.route('/progress/<task_id>')
 def get_progress(task_id):
     return jsonify(progress.get(task_id, {"status": "not_found"}))
