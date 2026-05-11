@@ -11,17 +11,20 @@ DOWNLOAD_FOLDER.mkdir(exist_ok=True)
 
 progress = {}
 
-def download_task(url, fmt, task_id):
+def download_task(url, fmt, task_id, cookies_path=None):
     try:
         progress[task_id] = {"status": "downloading", "percent": 0}
 
-        output_template = DOWNLOAD_FOLDER / '%(title)s.%(ext)s'
-
         ydl_opts = {
-            'outtmpl': str(output_template),
+            'outtmpl': str(DOWNLOAD_FOLDER / '%(title)s.%(ext)s'),
             'progress_hooks': [lambda d: update_progress(d, task_id)],
             'quiet': True,
+            'no_warnings': True,
         }
+
+        # 添加 Cookies 支持
+        if cookies_path and os.path.exists(cookies_path):
+            ydl_opts['cookiefile'] = cookies_path
 
         if fmt == "audio":
             ydl_opts.update({
@@ -64,12 +67,16 @@ def start_download():
     fmt = request.form.get('format', 'video')
     task_id = str(uuid.uuid4())
     
-    thread = threading.Thread(target=download_task, args=(url, fmt, task_id))
+    # 这里暂时用默认路径，后面我们再加上传功能
+    cookies_path = "/tmp/cookies.txt"
+    
+    thread = threading.Thread(target=download_task, args=(url, fmt, task_id, cookies_path))
     thread.daemon = True
     thread.start()
     
     return jsonify({"task_id": task_id})
 
+# 其他路由保持不变
 @app.route('/progress/<task_id>')
 def get_progress(task_id):
     return jsonify(progress.get(task_id, {"status": "not_found"}))
@@ -79,7 +86,7 @@ def get_file(task_id):
     info = progress.get(task_id)
     if info and info.get("status") == "finished" and os.path.exists(info["path"]):
         return send_file(info["path"], as_attachment=True, download_name=info["filename"])
-    return "文件未就绪或已过期", 404
+    return "文件未就绪", 404
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
