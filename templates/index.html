@@ -11,22 +11,47 @@
     input, select {border:1px solid #ddd;}
     button {background:#e60000; color:white; border:none; font-weight:bold;}
     button:active {background:#cc0000;}
+    .cookies-btn {background:#007bff;}
     #status {margin-top:20px; padding:15px; border-radius:8px; min-height:50px;}
   </style>
 </head>
 <body>
   <div class="container">
     <h1>🎥 YouTube 下载器</h1>
+    
+    <h3>第一步：上传 Cookies（重要）</h3>
+    <input type="file" id="cookiesFile" accept=".txt">
+    <button class="cookies-btn" onclick="uploadCookies()">📤 上传 cookies.txt</button>
+
+    <h3>第二步：下载视频</h3>
     <input type="text" id="url" placeholder="粘贴 YouTube 视频链接" />
     <select id="format">
       <option value="video">📹 视频 (最高画质)</option>
       <option value="audio">🎵 音频 (MP3)</option>
     </select>
     <button onclick="startDownload()">🚀 开始下载</button>
+    
     <div id="status"></div>
   </div>
 
   <script>
+    async function uploadCookies() {
+      const fileInput = document.getElementById('cookiesFile');
+      if (!fileInput.files[0]) return alert("请先选择 cookies.txt 文件");
+      
+      const form = new FormData();
+      form.append('cookies', fileInput.files[0]);
+      
+      const res = await fetch('/upload_cookies', {method: 'POST', body: form});
+      const data = await res.json();
+      
+      if (data.success) {
+        alert(data.message);
+      } else {
+        alert(data.error);
+      }
+    }
+
     async function startDownload() {
       const url = document.getElementById('url').value.trim();
       const fmt = document.getElementById('format').value;
@@ -56,7 +81,7 @@
           clearInterval(interval);
           statusDiv.innerHTML = `❌ 下载失败: ${p.error}`;
         }
-      }, 1200);
+      }, 1500);
     }
   </script>
 </body>
